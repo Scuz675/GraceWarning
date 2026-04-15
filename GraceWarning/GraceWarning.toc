@@ -1,7 +1,0 @@
-## Interface: 11200
-## Title: GraceWarning
-## Notes: Shows popup and countdown when loot trade grace period appears
-## Author: You
-## Version: 1.1
-
-GraceWarning.lua
