@@ -1,5 +1,4 @@
 -- GraceWarning.lua
--- Vanilla / 1.12 compatible
 
 local FRAME = CreateFrame("Frame", "GraceWarningFrame")
 local TRIGGER_TEXT = "There is a grace period of 10 minutes"
@@ -9,37 +8,30 @@ local GW_CountdownFrame = nil
 local GW_EndTime = nil
 
 local function GW_FormatTime(seconds)
-    if seconds < 0 then
-        seconds = 0
-    end
-
+    if seconds < 0 then seconds = 0 end
     local mins = floor(seconds / 60)
     local secs = mod(seconds, 60)
-
-    if secs < 10 then
-        secs = "0" .. secs
-    end
-
+    if secs < 10 then secs = "0" .. secs end
     return mins .. ":" .. secs
 end
 
-local function GW_StopCountdown()
+local function GW_DestroyCountdown()
     if GW_CountdownFrame then
-        GW_CountdownFrame:Hide()
         GW_CountdownFrame:SetScript("OnUpdate", nil)
+        GW_CountdownFrame:Hide()
+        GW_CountdownFrame = nil
     end
     GW_EndTime = nil
 end
 
 local function GW_CreateCountdownFrame()
-    if GW_CountdownFrame then
-        return
-    end
+    if GW_CountdownFrame then return GW_CountdownFrame end
 
     local f = CreateFrame("Frame", "GraceWarningCountdownFrame", UIParent)
     f:SetWidth(280)
     f:SetHeight(100)
-    f:SetPoint("CENTER", UIParent, "CENTER", 0, 180)
+    f:ClearAllPoints()
+    f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     f:SetFrameStrata("DIALOG")
     f:EnableMouse(1)
     f:SetMovable(1)
@@ -55,7 +47,7 @@ local function GW_CreateCountdownFrame()
 
     f.bg = f:CreateTexture(nil, "BACKGROUND")
     f.bg:SetAllPoints(f)
-    f.bg:SetTexture(0, 0, 0, 0.80)
+    f.bg:SetTexture(0, 0, 0, 0.8)
 
     local top = f:CreateTexture(nil, "BORDER")
     top:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
@@ -103,47 +95,63 @@ local function GW_CreateCountdownFrame()
     f.close.text:SetText("X")
 
     f.close:SetScript("OnClick", function()
-        GW_StopCountdown()
+        GW_DestroyCountdown()
     end)
 
     GW_CountdownFrame = f
+    return f
 end
 
 local function GW_StartCountdown(duration)
-    GW_CreateCountdownFrame()
+    local f = GW_CreateCountdownFrame()
 
     GW_EndTime = GetTime() + duration
-    GW_CountdownFrame:Show()
-    GW_CountdownFrame.timer:SetText(GW_FormatTime(duration))
+    f:Show()
+    f.timer:SetText(GW_FormatTime(duration))
 
-    GW_CountdownFrame:SetScript("OnUpdate", function()
-        if not GW_EndTime then
-            return
-        end
+    f:SetScript("OnUpdate", function()
+        if not GW_EndTime then return end
 
         local remaining = floor(GW_EndTime - GetTime())
-
         if remaining <= 0 then
-            GW_CountdownFrame.timer:SetText("0:00")
-            GW_StopCountdown()
+            GW_DestroyCountdown()
             return
         end
 
-        GW_CountdownFrame.timer:SetText(GW_FormatTime(remaining))
+        if this and this.timer then
+            this.timer:SetText(GW_FormatTime(remaining))
+        end
     end)
 end
 
+local function GW_ClearPopup()
+    for i = 1, 4 do
+        local frame = getglobal("StaticPopup"..i)
+        if frame and frame:IsShown() and frame.which == "GRACE_WARNING_POPUP" then
+            StaticPopup_Hide("GRACE_WARNING_POPUP")
+            return
+        end
+    end
+end
+
 function GraceWarning_UseHearthstone()
+    local found = false
+
     for bag = 0, 4 do
         for slot = 1, GetContainerNumSlots(bag) do
             local itemLink = GetContainerItemLink(bag, slot)
             if itemLink and string.find(itemLink, "Hearthstone") then
+                found = true
+                GW_ClearPopup()
+                GW_DestroyCountdown()
                 UseContainerItem(bag, slot)
                 return
             end
         end
     end
 
+    GW_ClearPopup()
+    GW_DestroyCountdown()
     DEFAULT_CHAT_FRAME:AddMessage("|cffff0000GraceWarning: Hearthstone not found.|r")
 end
 
@@ -153,6 +161,8 @@ StaticPopupDialogs["GRACE_WARNING_POPUP"] = {
     button2 = "Hearthstone",
 
     OnAccept = function()
+        GW_ClearPopup()
+        GW_DestroyCountdown()
     end,
 
     OnCancel = function()
@@ -166,13 +176,20 @@ StaticPopupDialogs["GRACE_WARNING_POPUP"] = {
 }
 
 local function GraceWarning_Trigger()
-    if GW_Triggered then
-        return
-    end
-
+    if GW_Triggered then return end
     GW_Triggered = true
+
     PlaySound("RaidWarning")
     StaticPopup_Show("GRACE_WARNING_POPUP")
+
+    for i = 1, 4 do
+        local frame = getglobal("StaticPopup"..i)
+        if frame and frame:IsShown() and frame.which == "GRACE_WARNING_POPUP" then
+            frame:ClearAllPoints()
+            frame:SetPoint("TOP", UIParent, "TOP", 0, -120)
+        end
+    end
+
     GW_StartCountdown(600)
 end
 
@@ -187,42 +204,26 @@ FRAME:SetScript("OnEvent", function()
         GraceWarning_HandleMessage(arg1)
     elseif event == "PLAYER_ENTERING_WORLD" then
         GW_Triggered = false
-        GW_StopCountdown()
+        GW_ClearPopup()
+        GW_DestroyCountdown()
     end
 end)
 
 FRAME:RegisterEvent("CHAT_MSG_SYSTEM")
 FRAME:RegisterEvent("PLAYER_ENTERING_WORLD")
 
-function GraceWarning_Test()
-    GW_Triggered = false
-    GraceWarning_Trigger()
-end
-
-function GraceWarning_TestMessage()
-    GW_Triggered = false
-    GraceWarning_HandleMessage("There is a grace period of 10 minutes allowing you to trade raid loot to others in case it's wrongly assigned.")
-end
-
-function GraceWarning_TestCountdown(seconds)
-    GW_StartCountdown(seconds or 10)
-end
-
 SLASH_GRACEWARNING1 = "/gw"
 SlashCmdList["GRACEWARNING"] = function(msg)
     msg = string.lower(msg or "")
-
     if msg == "test" then
-        GraceWarning_Test()
-    elseif msg == "testmsg" then
-        GraceWarning_TestMessage()
-    elseif msg == "timer" then
-        GraceWarning_TestCountdown(10)
+        GW_Triggered = false
+        GraceWarning_Trigger()
     elseif msg == "reset" then
         GW_Triggered = false
-        GW_StopCountdown()
+        GW_ClearPopup()
+        GW_DestroyCountdown()
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00GraceWarning: reset.|r")
     else
-        DEFAULT_CHAT_FRAME:AddMessage("|cffffff00GraceWarning commands: /gw test, /gw testmsg, /gw timer, /gw reset|r")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffff00GraceWarning commands: /gw test, /gw reset|r")
     end
 end
